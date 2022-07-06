@@ -1,0 +1,373 @@
+/*    ________________________
+     |    Simya Software      |
+     |      Munir Turk        |
+     | Kompresor Anakart Kodu |
+     |     Temmuz 2022        |
+     |________________________|
+ */
+
+#include <LiquidCrystal_I2C.h>              // Kutuphaneleri ekliyoruz
+#include <OneWire.h>
+#include <Wire.h>   
+#include <EEPROM.h>     
+#include <Bounce2.h>          
+Bounce debouncer = Bounce();   
+LiquidCrystal_I2C lcd(0x27,20,4);           // LCD ekrani tanimliyoruz.
+
+
+int P1 = 2;                                 // Buton Menu
+int P2 = 3;                                 // Buton +         
+int P3 = 4;                                 // Buton -       
+int menu = 0;                               // Buton Interrupt
+//Buton digital 5 tanimli ama bosta
+
+
+int BarStart;                               // Baslangic basinc degiskeni
+int BarStop;                                // Son basinc degiskeni
+int TempStart;                              // Baslangic sicaklik degiskeni
+int TempStop;                               // Son basinc degiskeni
+int FanStart;                               // Baslangic fan sicaklik degiskeni
+int eeAddress1 = 10;                        // Baslangic basincinin saklanan bellek eepromu     
+int eeAddress2 = 20;                        // Son basincinin saklanan bellek eepromu 
+int eeAddress3 = 30;                        // Baslangic sicakligin saklanan bellek eepromu
+int eeAddress4 = 40;                        // Son basincinin saklanan bellek eepromu
+int eeAddress5 = 50;                        // Baslangic fan sicakliginin saklanan bellek eepromu
+
+
+long previousMillis = 0;                    // Delay surelerinin belirlenmesi
+long interval = 30000;             
+long intervalSec = 500;             
+int ledStateSec = 0;                
+int buttonState; 
+int lastButtonState = LOW;         
+unsigned long lastDebounceTime = 0;
+unsigned long debounceDelay = 100;  
+
+
+const int alarm = 9;                        // Alarm rolesi tanimlamasi
+const int motor = 10;                       // Motor rolesi tanimlamasi            
+const int selenoid = 11;                    // Selenoid rolesi tanimlamasi          
+const int fan = 12;                         // Fan rolesi tanimlamasi           
+
+
+int basinc1 = A0;                           // Birinci basinc sensorunun tanimlamasi
+int basinc2 = A2;                           // Ikinci basinc sensorunun tanimlamasi
+int DS18S20_Pin = 6;                        // Sicaklik sensorunun tanimlamasi
+int sayac = 0;                              // Giris sayacinin tanimlamasi
+OneWire ds(DS18S20_Pin);                    // Sicaklik sensorunun kutuphaneye tanitilmasi
+
+
+void setup() {
+  
+  lcd.init();                               // LCD ekran baslatiliyor                    
+  lcd.backlight();                          // LCD ekranin isigi aciliyor          
+  Serial.begin(115200);                     // Serial Port 115200 e ayarlaniyor     
+  Wire.begin();                             
+
+
+  pinMode(P1,INPUT_PULLUP);                 // Butonlar interrupta baglaniyor
+    debouncer.attach(P1);                
+    debouncer.interval(debounceDelay); 
+  pinMode(P2,INPUT_PULLUP);             
+    debouncer.attach(P2);         
+    debouncer.interval(debounceDelay);  
+  pinMode(P3,INPUT_PULLUP);      
+    debouncer.attach(P3);         
+    debouncer.interval(debounceDelay);   
+
+ 
+  pinMode(alarm, OUTPUT);                   // Rolelere cikis veriliyor
+    //digitalWrite(alarm, LOW);         
+  pinMode(motor, OUTPUT);         
+   // digitalWrite(motor, LOW);        
+  pinMode(selenoid, OUTPUT);         
+   // digitalWrite(selenoid, LOW);          
+  pinMode(fan, OUTPUT);           
+    //digitalWrite(fan, LOW);  
+
+       
+  EEPROM.get(eeAddress1, BarStart);         // Yukarda tanimladigimiz eepromlar burada degiskenler ile birlestiriliyor
+  EEPROM.get(eeAddress2, BarStop); 
+  EEPROM.get(eeAddress3, TempStart); 
+  EEPROM.get(eeAddress4, TempStop);
+  EEPROM.get(eeAddress5, FanStart);     
+
+  
+  lcd.setCursor(0,  0); lcd.print(" Simya Software "); // Giris Ekrani Yazilari
+  lcd.setCursor(0,  1); lcd.print(" Munir Turk   ");
+  lcd.setCursor(0,  2); lcd.print(" Baslatiliyor...   ");
+
+  for (int x =0 ; x<=2 ; x++){              // Ekran acilirken bekleme sayaci
+  if(sayac <=2) {
+    lcd.setCursor(1, 3);
+    lcd.print(sayac++);
+    delay(1000);    
+     }
+     }
+  lcd.clear();
+  
+}
+
+
+void loop() {
+  
+  debouncer.update();                       // Interrupt Attach ile menu kuruyoruz
+  if(digitalRead(P1)){menu=menu+1;}            
+   debouncer.attach(P1);                      
+   debouncer.interval(debounceDelay);          
+  if(menu==0){AnaEkran();}                   
+  if(menu==1){BarStartEkrani();}             
+  if(menu==2){BarStopEkrani();} 
+  if(menu==4){TempStartEkrani();}
+  if(menu==5){TempStopEkrani();}     
+  if(menu==6){FanStartEkrani();}          
+  if(menu==7){Kaydet(); delay(500); menu=0;}
+    delay(100);
+
+}
+
+
+volatile unsigned long secondCount = 0; 
+
+
+void AnaEkran ()                             // Ana Menu Ekrani
+{
+   
+ unsigned long currentMillis = millis();     // Menu kontrolleri
+  if (currentMillis - previousMillis >= intervalSec)
+  {
+   previousMillis = currentMillis;   
+    if (ledStateSec == LOW ){ledStateSec = HIGH; secondCount = secondCount + 1;}
+    else {ledStateSec = LOW;}
+  }
+ unsigned long secondCopy;
+ secondCopy = secondCount;  
+
+
+  float temperature = getTemp();            // Sicaklik degiskeni
+
+  int basinc1 = analogRead(0);              // Birinci basinc sensorunden veri okuma
+  int basinc2 = analogRead(2);              // Ikinci basinc sensorunden veri okuma
+
+
+//Temel Kodlari yazdigimiz bolum burada
+
+ //lcd.setCursor(0, 3); lcd.print(temperature); delay(1000); lcd.clear();
+ 
+  //sicaklik ile selenoid kontrolu
+// if (  (temperature > TempStart) && ( basinc1 > Start || basinc1 < Stop )) { digitalWrite(selenoid, HIGH);  }
+// else if (  temperature < TempStart) { digitalWrite(selenoid, HIGH); delay(15000); digitalWrite(selenoid, LOW);  delay(60000); }
+ //else if ( basinc1 > Stop) { digitalWrite(selenoid, LOW); delay(3000000); }
+ // else if ( basinc1 > Start ) { digitalWrite(selenoid, HIGH); }
+
+  //if ( basinc1 > Stop ) { digitalWrite(selenoid, LOW) ; delay(300000);}
+  //else if ( basinc1 > Start ) { digitalWrite(selenoid, LOW);digitalWrite(motor, LOW); digitalWrite(fan, LOW);}
+  //else if ( basinc1 = Start ) { digitalWrite(selenoid, LOW);digitalWrite(motor, LOW); digitalWrite(fan, LOW);}
+
+  
+ //if (  (temperature-5) > TempStop) { lcd.setCursor(0, 0); lcd.print("Sicaklik Error");delay(1000); lcd.clear();   }
+ //if (  temperature > TempStop) { digitalWrite(selenoid, LOW);  digitalWrite(motor, LOW); }
+
+  
+  //sicaklik ile fan kontrolu
+  if ( temperature > 65 && temperature > FanStart ) { digitalWrite(fan, HIGH); lcd.setCursor(0, 1); lcd.print("F.A"); }
+  else{ digitalWrite(fan, LOW); lcd.setCursor(0, 1); lcd.print("F.K"); }
+
+
+  Serial.println(previousMillis);
+
+}
+
+
+void TempStartEkrani()                     // Baslangic sicaklik degerinin belirlendigi ekran
+{
+
+  unsigned long currentMillis = millis(); // Menu kontrolleri
+  if(currentMillis - previousMillis > interval)
+    {previousMillis = currentMillis; menu = 9;}
+    
+  if(digitalRead(P2)== HIGH)
+    {
+    if (TempStart == 150){TempStart = 0;}     
+    else {TempStart = TempStart + 1;}        
+    }
+
+  if(digitalRead(P3) == HIGH)
+    {
+    if (TempStart == 0){TempStart = 150;}     
+    else {TempStart = TempStart - 1;}        
+    }
+
+  lcd.clear();                            // LCD Ekranda gosterilen kisim
+  lcd.setCursor(0, 0); lcd.print("Baslangic Sicakligi?");
+  lcd.setCursor(9, 3); lcd.print(TempStart,DEC);
+    delay(100);
+    
+}
+
+void TempStopEkrani()                     // Son sicaklik degerinin belirlendigi ekran 
+{
+
+unsigned long currentMillis = millis();  // Menu kontrolleri
+  if(currentMillis - previousMillis > interval)
+    {previousMillis = currentMillis; menu = 9;}
+
+  if(digitalRead(P2) == HIGH)
+    {
+    if (TempStop == 150){TempStop = 0;}      
+    else {TempStop = TempStop + 1;}         
+    }
+
+  if(digitalRead(P3) == HIGH)
+    {
+    if (TempStop == 0){TempStop = 150;}      
+    else {TempStop = TempStop - 1;}          
+    }
+
+  lcd.clear();                             // LCD Ekranda gosterilen kisim
+  lcd.setCursor(0, 0); lcd.print("Son Sicakligi?");
+  lcd.setCursor(9, 3); lcd.print(TempStop,DEC);
+    delay(100);
+    
+}
+
+void BarStartEkrani()                      // Baslangic basinc degerinin belirlendigi ekran
+{
+
+  unsigned long currentMillis = millis();  // Menu kontrolleri
+  if(currentMillis - previousMillis > interval)
+    {previousMillis = currentMillis; menu = 9;}
+    
+  if(digitalRead(P2)== HIGH)
+    {
+    if (BarStart == 150){BarStart = 0;}     
+    else {BarStart = BarStart + 1;}        
+    }
+
+  if(digitalRead(P3) == HIGH)
+    {
+    if (BarStart == 0){BarStart = 150;}     
+    else {BarStart = BarStart - 1;}        
+    }
+
+  lcd.clear();                            // LCD Ekranda gosterilen kisim
+  lcd.setCursor(0, 0); lcd.print("Baslangic Basinci?");
+  lcd.setCursor(9, 3); lcd.print(BarStart,DEC);
+    delay(100);
+    
+}
+
+void BarStopEkrani()                      // Son basinc degerinin belirlendigi ekran
+{
+
+unsigned long currentMillis = millis();   // Menu kontrolleri
+  if(currentMillis - previousMillis > interval)
+    {previousMillis = currentMillis; menu = 9;}
+
+  if(digitalRead(P2) == HIGH)
+    {
+    if (BarStop == 150){BarStop = 0;}      
+    else {BarStop = BarStop + 1;}         
+    }
+
+  if(digitalRead(P3) == HIGH)
+    {
+    if (BarStop == 0){BarStop = 150;}      
+    else {BarStop = BarStop - 1;}          
+    }
+
+  lcd.clear();                            // LCD Ekranda gosterilen kisim
+  lcd.setCursor(0, 0); lcd.print("Son Basinci?");
+  lcd.setCursor(9, 3); lcd.print(BarStop,DEC);
+    delay(100);
+    
+}
+
+
+void FanStartEkrani()                      // Fani baslatmak icin sicaklik degerinin belirlendigi ekran
+{
+
+  unsigned long currentMillis = millis();  // Menu kontrolleri
+  if(currentMillis - previousMillis > interval)
+    {previousMillis = currentMillis; menu = 9;}
+    
+  if(digitalRead(P2)== HIGH)
+    {
+    if (FanStart == 150){FanStart = 0;}     
+    else {FanStart = FanStart + 1;}        
+    }
+
+  if(digitalRead(P3) == HIGH)
+    {
+    if (FanStart == 0){FanStart = 150;}     
+    else {FanStart = FanStart - 1;}        
+    }
+
+  lcd.clear();                            // LCD Ekranda gosterilen kisim
+  lcd.setCursor(0, 0); lcd.print("Fan Acma Sicakligi");
+  lcd.setCursor(9, 3); lcd.print(FanStart,DEC);
+    delay(100);
+    
+}
+
+void Kaydet()                            // Tum verilerinin eeprom a kaydedildigi ekran
+{
+
+  lcd.clear();                           
+  EEPROM.put(eeAddress1, BarStart);         
+  EEPROM.put(eeAddress2, BarStop);
+  EEPROM.put(eeAddress3, TempStart);     
+  EEPROM.put(eeAddress4, TempStop);  
+  EEPROM.put(eeAddress5, FanStart);  
+
+  lcd.setCursor(0,0); lcd.print("Veriler Kaydedildi");
+    delay(1000);
+  lcd.clear(); 
+
+}
+
+
+// Dijital sicaklik sensoru icin olcum kodlari
+float getTemp(){
+
+  byte data[12];
+  byte addr[8];
+
+  if ( !ds.search(addr)) {
+      ds.reset_search();
+      return -1000;
+  }
+
+  if ( OneWire::crc8( addr, 7) != addr[7]) {
+      return -1000;
+  }
+
+  if ( addr[0] != 0x10 && addr[0] != 0x28) {
+      return -1000;
+  }
+
+  ds.reset();
+  ds.select(addr);
+  ds.write(0x44,1); 
+
+  byte present = ds.reset();
+  ds.select(addr);    
+  ds.write(0xBE); 
+
+  for (int i = 0; i < 9; i++) { 
+    data[i] = ds.read();
+  }
+
+  ds.reset_search();
+
+  byte MSB = data[1];
+  byte LSB = data[0];
+
+  float tempRead = ((MSB << 8) | LSB);
+  float TemperatureSum = tempRead / 16;
+
+  return TemperatureSum;
+
+}
+
+// Kod Sonu
